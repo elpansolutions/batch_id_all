@@ -1,0 +1,19 @@
+[project]
+name = "batch_id_all"
+authors = [
+    { name = "RRS", email = "info@example.com"}
+]
+description = "Universal Batch ID Manager for Frappe / ERPNext - Enables identical physical batch numbers across multiple products with automatic conflict resolution."
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    # "frappe~=16.0.0"
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.flit.module]
+name = "batch_id_all"
