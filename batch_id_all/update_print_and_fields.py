@@ -12,12 +12,13 @@ def run():
                 pf.save(ignore_permissions=True)
                 print(f"Updated Print Format: {pf.name}")
     
-    # Ensure v4 gst specifically is verified
-    v4 = frappe.get_doc("Print Format", "v4 gst")
-    if v4.html and "item.batch_no" in v4.html and "item.custom_batch_id_all" not in v4.html:
-        v4.html = v4.html.replace("item.batch_no", "item.custom_batch_id_all or item.batch_no")
-        v4.save(ignore_permissions=True)
-        print("Updated v4 gst Print Format specifically.")
+    # Ensure v4 gst specifically is verified if it exists
+    if frappe.db.exists("Print Format", "v4 gst"):
+        v4 = frappe.get_doc("Print Format", "v4 gst")
+        if v4.html and "item.batch_no" in v4.html and "item.custom_batch_id_all" not in v4.html:
+            v4.html = v4.html.replace("item.batch_no", "item.custom_batch_id_all or item.batch_no")
+            v4.save(ignore_permissions=True)
+            print("Updated v4 gst Print Format specifically.")
 
     # 2. Update Property Setters for in_list_view
     child_tables = [
