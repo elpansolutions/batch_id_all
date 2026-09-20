@@ -89,11 +89,111 @@ def sync_transaction_taxes(doc, method=None):
 		doc.taxes_and_charges = "Input GST In-state - RRS" if doc.tax_category == "In-State" else "Input GST Out-state - RRS"
 
 
+def parse_expiry_to_date(val):
+	if not val:
+		return None
+	val_str = str(val).strip()
+	if "-" in val_str and len(val_str.split("-")) == 2:
+		parts = val_str.split("-")
+		m_str, y_str = parts[0], parts[1]
+		if m_str.isdigit() and y_str.isdigit():
+			m = int(m_str)
+			y = 2000 + int(y_str) if len(y_str) == 2 else int(y_str)
+			if 1 <= m <= 12:
+				if m in [1, 3, 5, 7, 8, 10, 12]:
+					last_day = 31
+				elif m in [4, 6, 9, 11]:
+					last_day = 30
+				else:
+					is_leap = (y % 400 == 0) or (y % 4 == 0 and y % 100 != 0)
+					last_day = 29 if is_leap else 28
+				return f"{y:04d}-{m:02d}-{last_day:02d}"
+	try:
+		return frappe.utils.getdate(val_str)
+	except Exception:
+		return None
+
+
+def get_or_create_batch_for_item(item_code, raw_batch_id, row=None):
+	"""
+	Retrieves the appropriate Batch document name for (item_code, raw_batch_id),
+	or automatically creates and inserts a new Batch record if it does not exist yet.
+	"""
+	if not item_code or not raw_batch_id:
+		return None
+	raw_id = str(raw_batch_id).strip()
+	if not raw_id:
+		return None
+
+	# 1. Search for existing batch specifically belonging to this item
+	existing_name = frappe.db.get_value("Batch", {"item": item_code, "custom_batch_id_all": raw_id}, "name")
+	if not existing_name:
+		existing_name = frappe.db.get_value("Batch", {"item": item_code, "batch_id": raw_id}, "name")
+	if not existing_name:
+		existing_name = frappe.db.get_value("Batch", {"item": item_code, "name": f"{raw_id}-{item_code}"}, "name")
+	if not existing_name and frappe.db.exists("Batch", {"item": item_code, "name": raw_id}):
+		existing_name = raw_id
+
+	if existing_name:
+		# Ensure custom_batch_id_all is populated on existing batch
+		cur_val = frappe.db.get_value("Batch", existing_name, "custom_batch_id_all")
+		if not cur_val:
+			frappe.db.set_value("Batch", existing_name, "custom_batch_id_all", raw_id)
+		return existing_name
+
+	# 2. Batch doesn't exist yet for this item -> CREATE NEW BATCH
+	batch = frappe.new_doc("Batch")
+	batch.item = item_code
+	batch.custom_batch_id_all = raw_id
+
+	# Determine unique Primary Key name
+	if frappe.db.exists("Batch", raw_id):
+		target_name = f"{raw_id}-{item_code}"
+		counter = 1
+		while frappe.db.exists("Batch", target_name):
+			# If exists and belongs to this item, return it
+			if frappe.db.get_value("Batch", target_name, "item") == item_code:
+				return target_name
+			counter += 1
+			target_name = f"{raw_id}-{item_code}-{counter}"
+		batch.name = target_name
+		batch.batch_id = target_name
+	else:
+		batch.name = raw_id
+		batch.batch_id = raw_id
+
+	# Populate metadata from row if available
+	if row:
+		exp_val = row.get("expiry_date") or row.get("custom_expiry_date") or row.get("custom_expiry")
+		if exp_val:
+			parsed_date = parse_expiry_to_date(exp_val)
+			if parsed_date:
+				batch.expiry_date = parsed_date
+
+		mrp_val = row.get("custom_mrp") or row.get("custom_custom_mrp") or row.get("mrp")
+		if mrp_val:
+			for mrp_field in ["custom_custom_mrp", "custom_mrp", "mrp"]:
+				if frappe.get_meta("Batch").has_field(mrp_field):
+					batch.set(mrp_field, flt(mrp_val))
+					break
+
+		min_val = row.get("custom_minimum_selling_price") or row.get("minimum_selling_price")
+		if min_val:
+			for min_field in ["custom_minimum_selling_price", "minimum_selling_price"]:
+				if frappe.get_meta("Batch").has_field(min_field):
+					batch.set(min_field, flt(min_val))
+					break
+
+	batch.insert(ignore_permissions=True)
+	return batch.name
+
+
 def sync_transaction_item_batches(doc, method=None):
 	"""
 	Universal hook for Purchase/Sales/Stock transactions.
 	Ensures row.batch_no points to the legitimate Batch record for row.item_code,
 	resolving any cross-item batch conflicts automatically,
+	creating missing batch records on-the-fly,
 	populating custom_batch_id_all with the clean shared batch number,
 	and synchronizing tax details.
 	"""
@@ -111,49 +211,29 @@ def sync_transaction_item_batches(doc, method=None):
 		batch_no = row.get("batch_no")
 		custom_batch = row.get("custom_batch_id_all") or row.get("custom_batch_number")
 
-		# Check if current batch_no is invalid or belongs to a different item
-		if batch_no:
+		raw_id = str(custom_batch or "").strip()
+		if not raw_id and batch_no:
+			raw_id = str(frappe.db.get_value("Batch", batch_no, "custom_batch_id_all") or batch_no).strip()
+
+		if not raw_id:
+			continue
+
+		row.custom_batch_id_all = raw_id
+
+		# Check if current batch_no is missing, invalid, or belongs to a different item
+		needs_batch_resolution = False
+		if not batch_no:
+			needs_batch_resolution = True
+		elif not frappe.db.exists("Batch", batch_no):
+			needs_batch_resolution = True
+		else:
 			batch_item = frappe.db.get_value("Batch", batch_no, "item")
 			if batch_item and batch_item != item_code:
-				# Contradiction: batch_no belongs to another item!
-				raw_id = str(custom_batch or frappe.db.get_value("Batch", batch_no, "custom_batch_id_all") or batch_no).strip()
-				row.custom_batch_id_all = raw_id
+				needs_batch_resolution = True
 
-				# Resolve the correct batch document for THIS item
-				correct_batch = frappe.db.get_value("Batch", {"item": item_code, "custom_batch_id_all": raw_id}, "name")
-				if not correct_batch:
-					correct_batch = frappe.db.get_value("Batch", {"item": item_code, "name": f"{raw_id}-{item_code}"}, "name")
-				if not correct_batch and frappe.db.exists("Batch", {"item": item_code, "name": raw_id}):
-					correct_batch = raw_id
-				
-				if correct_batch:
-					row.batch_no = correct_batch
-				else:
-					# Create batch for this item if needed or set target name
-					target_name = f"{raw_id}-{item_code}" if frappe.db.exists("Batch", raw_id) else raw_id
-					row.batch_no = target_name
-			else:
-				# Valid batch for this item
-				batch_val = frappe.db.get_value("Batch", batch_no, "custom_batch_id_all")
-				if batch_val:
-					row.custom_batch_id_all = batch_val
-				elif not custom_batch:
-					row.custom_batch_id_all = batch_no
-
-		elif custom_batch:
-			raw_id = str(custom_batch).strip()
-			row.custom_batch_id_all = raw_id
-
-			# Find existing batch for this item
-			bname = frappe.db.get_value("Batch", {"item": item_code, "custom_batch_id_all": raw_id}, "name")
-			if not bname:
-				bname = frappe.db.get_value("Batch", {"item": item_code, "name": f"{raw_id}-{item_code}"}, "name")
-			if not bname and frappe.db.exists("Batch", {"item": item_code, "name": raw_id}):
-				bname = raw_id
-			if not bname:
-				bname = f"{raw_id}-{item_code}" if frappe.db.exists("Batch", raw_id) else raw_id
-
-			row.batch_no = bname
+		if needs_batch_resolution:
+			resolved_batch = get_or_create_batch_for_item(item_code, raw_id, row)
+			row.batch_no = resolved_batch
 
 
 @frappe.whitelist()
