@@ -92,13 +92,40 @@ const set_purchase_tax_details = async function(frm) {
 		},
 		refresh: function(frm) {
 			(frm.doc.items || []).forEach(row => {
-				if (row.batch_no && !row.custom_batch_id_all) {
-					frappe.db.get_value("Batch", row.batch_no, "custom_batch_id_all", (r) => {
-						if (r && r.custom_batch_id_all) {
-							row.custom_batch_id_all = r.custom_batch_id_all;
-							frm.refresh_field("items");
-						}
-					});
+				if (row.batch_no) {
+					let needs_batch_id = !row.custom_batch_id_all;
+					let needs_expiry = (frappe.meta.has_field(row.doctype, "custom_expiry") && !row.custom_expiry)
+						|| (frappe.meta.has_field(row.doctype, "custom_expiry_date") && !row.custom_expiry_date)
+						|| (frappe.meta.has_field(row.doctype, "expiry_date") && !row.expiry_date);
+
+					if (needs_batch_id || needs_expiry) {
+						frappe.db.get_value("Batch", row.batch_no, ["custom_batch_id_all", "expiry_date"], (r) => {
+							if (r) {
+								let updated = false;
+								if (r.custom_batch_id_all && !row.custom_batch_id_all) {
+									row.custom_batch_id_all = r.custom_batch_id_all;
+									updated = true;
+								}
+								if (r.expiry_date) {
+									if (frappe.meta.has_field(row.doctype, "custom_expiry") && !row.custom_expiry) {
+										row.custom_expiry = r.expiry_date;
+										updated = true;
+									}
+									if (frappe.meta.has_field(row.doctype, "custom_expiry_date") && !row.custom_expiry_date) {
+										row.custom_expiry_date = r.expiry_date;
+										updated = true;
+									}
+									if (frappe.meta.has_field(row.doctype, "expiry_date") && !row.expiry_date) {
+										row.expiry_date = r.expiry_date;
+										updated = true;
+									}
+								}
+								if (updated) {
+									frm.refresh_field("items");
+								}
+							}
+						});
+					}
 				}
 			});
 		},
@@ -131,13 +158,40 @@ const set_purchase_tax_details = async function(frm) {
 		},
 		refresh: function(frm) {
 			(frm.doc.items || []).forEach(row => {
-				if (row.batch_no && !row.custom_batch_id_all) {
-					frappe.db.get_value("Batch", row.batch_no, "custom_batch_id_all", (r) => {
-						if (r && r.custom_batch_id_all) {
-							row.custom_batch_id_all = r.custom_batch_id_all;
-							frm.refresh_field("items");
-						}
-					});
+				if (row.batch_no) {
+					let needs_batch_id = !row.custom_batch_id_all;
+					let needs_expiry = (frappe.meta.has_field(row.doctype, "custom_expiry") && !row.custom_expiry)
+						|| (frappe.meta.has_field(row.doctype, "custom_expiry_date") && !row.custom_expiry_date)
+						|| (frappe.meta.has_field(row.doctype, "expiry_date") && !row.expiry_date);
+
+					if (needs_batch_id || needs_expiry) {
+						frappe.db.get_value("Batch", row.batch_no, ["custom_batch_id_all", "expiry_date"], (r) => {
+							if (r) {
+								let updated = false;
+								if (r.custom_batch_id_all && !row.custom_batch_id_all) {
+									row.custom_batch_id_all = r.custom_batch_id_all;
+									updated = true;
+								}
+								if (r.expiry_date) {
+									if (frappe.meta.has_field(row.doctype, "custom_expiry") && !row.custom_expiry) {
+										row.custom_expiry = r.expiry_date;
+										updated = true;
+									}
+									if (frappe.meta.has_field(row.doctype, "custom_expiry_date") && !row.custom_expiry_date) {
+										row.custom_expiry_date = r.expiry_date;
+										updated = true;
+									}
+									if (frappe.meta.has_field(row.doctype, "expiry_date") && !row.expiry_date) {
+										row.expiry_date = r.expiry_date;
+										updated = true;
+									}
+								}
+								if (updated) {
+									frm.refresh_field("items");
+								}
+							}
+						});
+					}
 				}
 			});
 		},
@@ -153,7 +207,7 @@ const set_purchase_tax_details = async function(frm) {
 	});
 });
 
-// 5. Register Child Table Sync for custom_batch_id_all
+// 5. Register Child Table Sync for custom_batch_id_all and expiry
 const child_doctypes = [
 	"Sales Invoice Item",
 	"Sales Order Item",
@@ -165,15 +219,33 @@ const child_doctypes = [
 	"Stock Reconciliation Item"
 ];
 
+function set_row_expiry_and_batch(row, cdt, cdn, batch_data) {
+	if (!batch_data) return;
+	let clean_id = batch_data.custom_batch_id_all || row.batch_no;
+	if (clean_id && row.custom_batch_id_all !== clean_id) {
+		frappe.model.set_value(cdt, cdn, "custom_batch_id_all", clean_id);
+	}
+	if (batch_data.expiry_date) {
+		if (frappe.meta.has_field(cdt, "custom_expiry") && row.custom_expiry !== batch_data.expiry_date) {
+			frappe.model.set_value(cdt, cdn, "custom_expiry", batch_data.expiry_date);
+		}
+		if (frappe.meta.has_field(cdt, "custom_expiry_date") && row.custom_expiry_date !== batch_data.expiry_date) {
+			frappe.model.set_value(cdt, cdn, "custom_expiry_date", batch_data.expiry_date);
+		}
+		if (frappe.meta.has_field(cdt, "expiry_date") && row.expiry_date !== batch_data.expiry_date) {
+			frappe.model.set_value(cdt, cdn, "expiry_date", batch_data.expiry_date);
+		}
+	}
+}
+
 child_doctypes.forEach(child_dt => {
 	frappe.ui.form.on(child_dt, {
 		batch_no: function(frm, cdt, cdn) {
 			let row = locals[cdt]?.[cdn];
 			if (row && row.batch_no) {
-				frappe.db.get_value("Batch", row.batch_no, ["custom_batch_id_all", "item"], (r) => {
+				frappe.db.get_value("Batch", row.batch_no, ["custom_batch_id_all", "expiry_date", "item"], (r) => {
 					if (r) {
-						let clean_id = r.custom_batch_id_all || row.batch_no;
-						frappe.model.set_value(cdt, cdn, "custom_batch_id_all", clean_id);
+						set_row_expiry_and_batch(row, cdt, cdn, r);
 					}
 				});
 			}
@@ -184,9 +256,12 @@ child_doctypes.forEach(child_dt => {
 				frappe.db.get_value("Batch", {
 					item: row.item_code,
 					custom_batch_id_all: row.custom_batch_id_all
-				}, "name", (r) => {
-					if (r && r.name && row.batch_no !== r.name) {
-						frappe.model.set_value(cdt, cdn, "batch_no", r.name);
+				}, ["name", "custom_batch_id_all", "expiry_date"], (r) => {
+					if (r && r.name) {
+						if (row.batch_no !== r.name) {
+							frappe.model.set_value(cdt, cdn, "batch_no", r.name);
+						}
+						set_row_expiry_and_batch(row, cdt, cdn, r);
 					}
 				});
 			}
