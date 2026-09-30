@@ -9,6 +9,80 @@ frappe.form.link_formatters["Batch"] = function(value, doc, docfield) {
 	return value;
 };
 
+// Ensure ControlLink seamlessly handles selecting Batch from search dropdown without losing value on blur
+(function() {
+    if (window.__spa_link_batch_patched) return;
+    window.__spa_link_batch_patched = true;
+
+    if (frappe.ui && frappe.ui.form && frappe.ui.form.ControlLink) {
+        let orig_setup_awesomeplete = frappe.ui.form.ControlLink.prototype.setup_awesomeplete;
+        frappe.ui.form.ControlLink.prototype.setup_awesomeplete = function() {
+            orig_setup_awesomeplete.apply(this, arguments);
+            let me = this;
+            if (this.$input) {
+                this.$input.data("control_link", me);
+                this.$input.on("awesomplete-select", function(e) {
+                    me.selected = true;
+                    var o = e.originalEvent;
+                    if (o && o.text && o.text.value) {
+                        var item = me.awesomplete.get_item(o.text.value);
+                        if (item && item.label && item.value) {
+                            if (!me.title_value_map) me.title_value_map = {};
+                            me.title_value_map[item.label] = item.value;
+                            me.title_value_map[item.value] = item.value;
+                            if (me.df && me.df.options) {
+                                frappe.utils.add_link_title(me.df.options, item.value, item.label);
+                            }
+                        }
+                    }
+                });
+            }
+        };
+
+        let orig_parse_validate = frappe.ui.form.ControlLink.prototype.parse_validate_and_set_in_model;
+        frappe.ui.form.ControlLink.prototype.parse_validate_and_set_in_model = function(value, e, label) {
+            if (label && value) {
+                if (!this.title_value_map) this.title_value_map = {};
+                this.title_value_map[label] = value;
+                this.title_value_map[value] = value;
+                if (this.df && this.df.options) {
+                    frappe.utils.add_link_title(this.df.options, value, label);
+                }
+            }
+            return orig_parse_validate.apply(this, arguments);
+        };
+
+        let orig_get_input_value = frappe.ui.form.ControlLink.prototype.get_input_value;
+        frappe.ui.form.ControlLink.prototype.get_input_value = function() {
+            let val = orig_get_input_value ? orig_get_input_value.apply(this, arguments) : (this.$input ? this.$input.val() : null);
+            if (this.df && this.df.options === "Batch" && val) {
+                if (this.title_value_map && this.title_value_map[val]) {
+                    return this.title_value_map[val];
+                }
+                if (frappe._link_titles) {
+                    let prefix = "Batch::";
+                    for (let k in frappe._link_titles) {
+                        if (k.startsWith(prefix) && String(frappe._link_titles[k]).trim().toLowerCase() === String(val).trim().toLowerCase()) {
+                            return k.substring(prefix.length);
+                        }
+                    }
+                }
+            }
+            return val;
+        };
+    }
+
+    $(document).on("mousedown", ".awesomplete li, .awesomplete [role='option']", function(e) {
+        let input = $(this).closest(".awesomplete").find("input");
+        if (input.length) {
+            let me = input.data("control_link");
+            if (me) {
+                me.selected = true;
+            }
+        }
+    });
+})();
+
 // 2. Tax Category & Taxes and Charges Automation
 const set_sales_tax_details = async function(frm) {
 	if (!frm || !frm.doc || !frm.doc.customer || frm.doc.docstatus !== 0) return;

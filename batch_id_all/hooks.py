@@ -7,6 +7,8 @@ app_license = "MIT"
 
 # Includes in <head>
 # ------------------
+app_include_js = "/assets/batch_id_all/js/batch_id_all.js"
+
 doctype_js = {
 	"Batch": "public/js/batch_id_all.js",
 	"Purchase Invoice": "public/js/batch_id_all.js",
@@ -77,7 +79,8 @@ doc_events = {
 # Override Standard Queries
 # -------------------------
 override_whitelisted_methods = {
-	"erpnext.controllers.queries.get_batch_no": "batch_id_all.events.get_clean_batch_no_query"
+	"erpnext.controllers.queries.get_batch_no": "batch_id_all.events.get_clean_batch_no_query",
+	"frappe.client.validate_link_and_fetch": "sales_pricing_assistant.api.validate_link_and_fetch"
 }
 
 # Installation and Migration Hooks
