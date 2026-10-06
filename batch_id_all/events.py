@@ -89,6 +89,29 @@ def sync_transaction_taxes(doc, method=None):
 		doc.taxes_and_charges = "Input GST In-state - RRS" if doc.tax_category == "In-State" else "Input GST Out-state - RRS"
 
 
+def sync_transaction_naming_series(doc, method=None):
+	"""
+	Automatically switches naming_series to return series (e.g. SRET-.YY.- / PRET-.YY.-)
+	when is_return is checked on a new document, and normal series when unchecked.
+	"""
+	if doc.doctype not in ["Sales Invoice", "Purchase Invoice"] or not doc.get("__islocal"):
+		return
+
+	series = doc.naming_series or ""
+	if doc.is_return:
+		if "RET" not in series.upper():
+			if "ACC-" in series.upper():
+				doc.naming_series = "ACC-SINV-RET-.YYYY.-" if doc.doctype == "Sales Invoice" else "ACC-PINV-RET-.YYYY.-"
+			else:
+				doc.naming_series = "SRET-.YY.-" if doc.doctype == "Sales Invoice" else "PRET-.YY.-"
+	else:
+		if "RET" in series.upper():
+			if "ACC-" in series.upper():
+				doc.naming_series = "ACC-SINV-.YYYY.-" if doc.doctype == "Sales Invoice" else "ACC-PINV-.YYYY.-"
+			else:
+				doc.naming_series = "SINV-.YY.-" if doc.doctype == "Sales Invoice" else "PINV-.YY.-"
+
+
 def parse_expiry_to_date(val):
 	if not val:
 		return None
@@ -198,6 +221,7 @@ def sync_transaction_item_batches(doc, method=None):
 	and synchronizing tax details.
 	"""
 	sync_transaction_taxes(doc, method)
+	sync_transaction_naming_series(doc, method)
 
 	items = doc.get("items") or []
 	if not items and hasattr(doc, "supplied_items"):

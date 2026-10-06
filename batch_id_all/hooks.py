@@ -31,6 +31,7 @@ doc_events = {
 		"validate": "batch_id_all.events.batch_validate",
 	},
 	"Purchase Invoice": {
+		"before_insert": "batch_id_all.events.sync_transaction_naming_series",
 		"before_validate": "batch_id_all.events.sync_transaction_item_batches",
 		"validate": "batch_id_all.events.sync_transaction_item_batches",
 		"before_save": "batch_id_all.events.sync_transaction_item_batches",
@@ -48,6 +49,7 @@ doc_events = {
 		"before_save": "batch_id_all.events.sync_transaction_item_batches",
 	},
 	"Sales Invoice": {
+		"before_insert": "batch_id_all.events.sync_transaction_naming_series",
 		"before_validate": "batch_id_all.events.sync_transaction_item_batches",
 		"validate": "batch_id_all.events.sync_transaction_item_batches",
 		"before_save": "batch_id_all.events.sync_transaction_item_batches",

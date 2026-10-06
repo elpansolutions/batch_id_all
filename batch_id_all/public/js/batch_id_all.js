@@ -149,7 +149,65 @@ const set_purchase_tax_details = async function(frm) {
 	}
 };
 
-// 3. Register Sales Form Handlers
+// 3. Return Series Automation for Sales & Purchase Invoices
+const set_return_naming_series = function(frm) {
+	if (!frm || !frm.doc || frm.doc.docstatus !== 0) return;
+	if (!frm.is_new()) return;
+
+	const dt = frm.doc.doctype;
+	if (dt !== "Sales Invoice" && dt !== "Purchase Invoice") return;
+
+	if (!frm.__original_naming_series_options) {
+		const df = (frm.meta.fields || []).find(f => f.fieldname === "naming_series")
+			|| frappe.meta.get_docfield(dt, "naming_series");
+		frm.__original_naming_series_options = df?.options || "";
+	}
+
+	if (!frm.__original_naming_series_options) return;
+
+	const all_series = frm.__original_naming_series_options
+		.split("\n")
+		.map(s => s.trim())
+		.filter(Boolean);
+
+	const return_series = all_series.filter(s => /RET|RETURN/i.test(s));
+	const normal_series = all_series.filter(s => !/RET|RETURN/i.test(s));
+
+	const is_return = Boolean(frm.doc.is_return);
+	const target_options = is_return ? return_series : normal_series;
+	if (!target_options.length) return;
+
+	// Update dropdown options
+	frm.set_df_property("naming_series", "options", target_options.join("\n"));
+
+	// Determine matching series
+	let cur = frm.doc.naming_series || "";
+	let target_series = "";
+
+	if (is_return) {
+		if (return_series.includes(cur)) {
+			target_series = cur;
+		} else if (cur.includes("ACC-") && return_series.find(s => s.includes("ACC-"))) {
+			target_series = return_series.find(s => s.includes("ACC-"));
+		} else {
+			target_series = return_series[0];
+		}
+	} else {
+		if (normal_series.includes(cur)) {
+			target_series = cur;
+		} else if (cur.includes("ACC-") && normal_series.find(s => s.includes("ACC-"))) {
+			target_series = normal_series.find(s => s.includes("ACC-"));
+		} else {
+			target_series = normal_series[0];
+		}
+	}
+
+	if (target_series && frm.doc.naming_series !== target_series) {
+		frm.set_value("naming_series", target_series);
+	}
+};
+
+// 4. Register Sales Form Handlers
 ["Sales Invoice", "Sales Order", "Delivery Note"].forEach(doctype => {
 	frappe.ui.form.on(doctype, {
 		setup: function(frm) {
@@ -215,7 +273,19 @@ const set_purchase_tax_details = async function(frm) {
 	});
 });
 
-// 4. Register Purchase Form Handlers
+frappe.ui.form.on("Sales Invoice", {
+	onload_post_render: function(frm) {
+		set_return_naming_series(frm);
+	},
+	refresh: function(frm) {
+		set_return_naming_series(frm);
+	},
+	is_return: function(frm) {
+		set_return_naming_series(frm);
+	}
+});
+
+// 5. Register Purchase Form Handlers
 ["Purchase Invoice", "Purchase Order", "Purchase Receipt"].forEach(doctype => {
 	frappe.ui.form.on(doctype, {
 		setup: function(frm) {
@@ -281,7 +351,19 @@ const set_purchase_tax_details = async function(frm) {
 	});
 });
 
-// 5. Register Child Table Sync for custom_batch_id_all and expiry
+frappe.ui.form.on("Purchase Invoice", {
+	onload_post_render: function(frm) {
+		set_return_naming_series(frm);
+	},
+	refresh: function(frm) {
+		set_return_naming_series(frm);
+	},
+	is_return: function(frm) {
+		set_return_naming_series(frm);
+	}
+});
+
+// 6. Register Child Table Sync for custom_batch_id_all and expiry
 const child_doctypes = [
 	"Sales Invoice Item",
 	"Sales Order Item",
